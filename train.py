@@ -1,5 +1,5 @@
 # Model and DataModule instantiation
-
+import os
 from Autoencode import AutoEncoder, CustomImageDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -13,8 +13,11 @@ import torchvision.transforms as transforms
 from Autoencode import CustomImageDataset
 import pdb
 from pytorch_lightning.callbacks import EarlyStopping
-model = AutoEncoder()
-data_module = CustomImageDataModule(data_dir='/data/Mahsa/br2sim/trainB')
+
+####for training
+# model = AutoEncoder()
+###### 
+data_module = CustomImageDataModule(data_dir='/data/Mahsa/Br2/imagedatapair')
 #data_module_test = CustomImageDataModule(data_dir='/data/Mahsa/br2sim/testB')
 transform = transforms.Compose([
              transforms.Resize((640, 480)),
@@ -22,6 +25,10 @@ transform = transforms.Compose([
 # dataset = CustomImageDataset('/data/Mahsa/br2sim/trainB', transform=transform)
 # dataloader = DataLoader(data_module,batch_size = 16)
 wandb_logger = WandbLogger(project='Autoencoder')
+#####for fine tunning
+best_model_path ='/data/Mahsa/Br2/my_model/autoencoder-epoch=00-val_loss=1.42_thirdrun.ckpt'
+model = AutoEncoder.load_from_checkpoint(best_model_path)
+#####
 # Checkpoint callback
 checkpoint_callback = ModelCheckpoint(
     monitor='val_loss',
@@ -30,12 +37,12 @@ checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
     mode='min',
 )
-early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=40, verbose=True, mode="min")
+# early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.0001, patience=150, verbose=True, mode="min")
 
 # Trainer
 trainer = pl.Trainer(
-    max_epochs=200,
-    callbacks=[checkpoint_callback,early_stop_callback],
+    max_epochs=300,
+    callbacks=[checkpoint_callback],
     accelerator='gpu' if torch.cuda.is_available() else 'cpu',
     devices=1 if torch.cuda.is_available() else None, 
     accumulate_grad_batches=8,

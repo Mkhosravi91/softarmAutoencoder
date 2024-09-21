@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
@@ -20,7 +20,7 @@ class CustomImageDataset(torch.utils.data.Dataset):
     def __init__(self, image_dir, transform=None):
         self.image_dir = image_dir
         self.transform = transform
-        self.image_paths = glob.glob(os.path.join(image_dir, '*.jpg'))  # assuming images are in JPG format
+        self.image_paths = glob.glob(os.path.join(image_dir, '*.png'))  # assuming images are in JPG format
         # pdb.set_trace()
         print('here')
 
@@ -153,15 +153,46 @@ class AutoEncoder(pl.LightningModule):
         self.log('test_loss', loss)
         return loss
 
+    # def compute_losses(self, x):
+    #     loss = 0
+    #     loss += self.inpainting_loss(x)
+    #     loss += self.colorization_loss(x)
+    #     loss += self.denoising_loss(x)
+    #     loss += self.context_prediction_loss(x)
+    #     loss += self.rotation_prediction_loss(x)
+    #     loss += self.contrastive_learning_loss(x)
+    #     return loss
+# more focused reconstructed and masked loss
     def compute_losses(self, x):
-        loss = 0
-        loss += self.inpainting_loss(x)
-        loss += self.colorization_loss(x)
-        loss += self.denoising_loss(x)
-        loss += self.context_prediction_loss(x)
-        loss += self.rotation_prediction_loss(x)
-        loss += self.contrastive_learning_loss(x)
-        return loss
+        # Reconstruct the image
+        x_reconstructed = self(x)
+        
+        # Create masks for red ball and green tip
+        red_ball_mask = (x[:, 0, :, :] > 0.6) & (x[:, 1, :, :] < 0.3) & (x[:, 2, :, :] < 0.3)  # Adjust thresholds as needed
+        green_tip_mask = (x[:, 1, :, :] > 0.6) & (x[:, 0, :, :] < 0.3) & (x[:, 2, :, :] < 0.3)  # Adjust thresholds as needed
+        
+        # Combine the masks
+        mask = (red_ball_mask | green_tip_mask).float()
+        
+        # Compute masked loss
+        masked_loss = self.masked_mse_loss(x_reconstructed, x, mask)
+        self.log('masked_loss', masked_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # Compute other losses
+        inpainting_loss = self.inpainting_loss(x) * 0.1
+        self.log('inpainting_loss', inpainting_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        
+        denoising_loss = self.denoising_loss(x) * 0.1
+        self.log('denoising_loss', denoising_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # Combine the losses
+        total_loss = masked_loss + inpainting_loss + denoising_loss
+
+        # Log the total loss
+        self.log('total_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return total_loss
+
 
     def inpainting_loss(self, x):
         mask = torch.rand_like(x) > 0.8
@@ -232,7 +263,7 @@ class AutoEncoder(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
 
@@ -242,7 +273,7 @@ class CustomImageDataset(torch.utils.data.Dataset):
     def __init__(self, image_dir, transform=None):
         self.image_dir = image_dir
         self.transform = transform
-        self.image_paths = glob.glob(os.path.join(image_dir, '*.jpg'))  # assuming images are in JPG format
+        self.image_paths = glob.glob(os.path.join(image_dir, '*.png'))  # assuming images are in JPG format
 
     def __len__(self):
         return len(self.image_paths)
