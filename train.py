@@ -46,7 +46,8 @@ trainer = pl.Trainer(
     accelerator='gpu' if torch.cuda.is_available() else 'cpu',
     devices=1 if torch.cuda.is_available() else None, 
     accumulate_grad_batches=8,
-    logger=wandb_logger
+    logger=wandb_logger,
+    precision=16
 )
 
 # torch.cuda.empty_cache()

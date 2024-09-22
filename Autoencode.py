@@ -163,6 +163,12 @@ class AutoEncoder(pl.LightningModule):
     #     loss += self.contrastive_learning_loss(x)
     #     return loss
 # more focused reconstructed and masked loss
+    def masked_mse_loss(self, input, target, mask):
+        # Expand mask to have the same number of channels as input and target
+        mask = mask.unsqueeze(1).repeat(1, input.size(1), 1, 1)  # Adds a channel dimension and repeats it 3 times
+        return F.mse_loss(input * mask, target * mask)
+
+
     def compute_losses(self, x):
         # Reconstruct the image
         x_reconstructed = self(x)
@@ -273,7 +279,7 @@ class CustomImageDataset(torch.utils.data.Dataset):
     def __init__(self, image_dir, transform=None):
         self.image_dir = image_dir
         self.transform = transform
-        self.image_paths = glob.glob(os.path.join(image_dir, '*.png'))  # assuming images are in JPG format
+        self.image_paths = glob.glob(os.path.join(image_dir, '*.jpg'))  # assuming images are in JPG format
 
     def __len__(self):
         return len(self.image_paths)
@@ -286,24 +292,45 @@ class CustomImageDataset(torch.utils.data.Dataset):
         return image, 0  # returning dummy label for compatibility
 
 class CustomImageDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir='./data', batch_size=16):
+    def __init__(self, data_dir='./data', batch_size=8):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
-        self.transform = transforms.Compose([
+        # self.transform = transforms.Compose([
+        #     transforms.Resize((640, 480)),
+        #     transforms.ToTensor(),
+        # ])
+        # Define transforms for training data (with augmentation)
+        self.train_transform = transforms.Compose([
+            transforms.Resize((640, 480)),
+            transforms.RandomHorizontalFlip(),       # Randomly flip images horizontally
+            transforms.RandomRotation(degrees=10),   # Rotate images within a 10-degree range
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Adjust brightness, contrast, saturation, and hue
+            transforms.ToTensor(),
+        ])
+
+        # Define transforms for validation and test data (no augmentation)
+        self.val_test_transform = transforms.Compose([
             transforms.Resize((640, 480)),
             transforms.ToTensor(),
         ])
 
     def setup(self, stage=None):
         if stage == 'fit' or stage is None:
-            dataset = CustomImageDataset(self.data_dir, transform=self.transform)
-            total_size = len(dataset)
+            # dataset = CustomImageDataset(self.data_dir, transform=self.transform)
+            # total_size = len(dataset)
+            train_dataset = CustomImageDataset(self.data_dir, transform=self.train_transform)
+            total_size = len(train_dataset)
             train_size = int(0.8 * total_size)
             val_size = total_size - train_size
-            self.train, self.val = random_split(dataset, [train_size, val_size])  # 80-20 split
+            self.train, self.val = random_split(train_dataset, [train_size, val_size])  # 80-20 split
+            self.val.dataset.transform = self.val_test_transform
+
         if stage == 'test' or stage is None:
-            self.test = CustomImageDataset(self.data_dir, transform=self.transform)
+            self.test = CustomImageDataset(self.data_dir, transform=self.val_test_transform)
+
+        # if stage == 'test' or stage is None:
+        #     self.test = CustomImageDataset(self.data_dir, transform=self.transform)
 
     def train_dataloader(self):
         return DataLoader(self.train, batch_size=self.batch_size)
